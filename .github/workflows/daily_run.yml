@@ -1,0 +1,51 @@
+name: Daily Job Agent Run
+
+on:
+  schedule:
+    # Runs daily at 6:00 AM UTC (11:30 AM IST)
+    - cron: '0 6 * * *'
+  # Allow manual trigger for testing
+  workflow_dispatch:
+
+jobs:
+  scrape-and-process:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run job agent
+        run: python main.py
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        # Continue on error so we still upload artifacts
+        continue-on-error: true
+
+      - name: Upload CSV artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: job-listings-$(date +'%Y-%m-%d')
+          path: data/*.csv
+          retention-days: 30
+
+      - name: Commit updated CSV to repo
+        run: |
+          git config user.name "job-agent-bot"
+          git config user.email "bot@job-agent.com"
+          git add data/
+          git commit -m "Auto-update job listings $(date +'%Y-%m-%d')" || echo "No changes to commit"
+          git push
+        # Allow this step to fail gracefully (e.g., if no changes)
+        continue-on-error: true

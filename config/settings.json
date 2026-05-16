@@ -1,0 +1,28 @@
+{
+    "job_titles": [
+        "Senior Frontend Developer",
+        "React Developer",
+        "Full Stack Engineer",
+        "Frontend Engineer",
+        "Software Engineer",
+        "Backend Engineer",
+        "DevOps Engineer",
+        "Data Scientist"
+    ],
+    "keywords_filter": [
+        "React", "TypeScript", "Node.js", "Frontend", "Full Stack",
+        "Backend", "Python", "JavaScript", "AWS", "Docker"
+    ],
+    "keywords_priority": [
+        "React", "TypeScript", "Node.js", "Frontend", "Full Stack"
+    ],
+    "max_results_per_platform": 50,
+    "polite_delay_min_seconds": 3,
+    "polite_delay_max_seconds": 6,
+    "csv_output_dir": "data",
+    "csv_filename_format": "{month_year}_Job_Listings.csv",
+    "dedup_similarity_threshold": 85,
+    "log_level": "INFO",
+    "slack_webhook_url_env": "SLACK_WEBHOOK_URL",
+    "github_repo": "raktimneog08-ops/JOB-AGENT"
+}
