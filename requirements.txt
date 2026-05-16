@@ -1,5 +1,11 @@
-requests==2.31.0
-beautifulsoup4==4.12.3
-lxml==5.1.0
-thefuzz==0.22.1
-python-dateutil==2.9.0
+requests>=2.28.0
+beautifulsoup4>=4.12.0
+lxml>=5.0.0
+thefuzz>=0.20.0
+python-dateutil>=2.8.0
+
+# JS-rendered scraping fallback (optional — requires FIRECRAWL_API_KEY)
+firecrawl-py>=0.0.13
+
+# Testing
+pytest>=7.0.0

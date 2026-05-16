@@ -19,9 +19,9 @@ logger = get_logger()
 
 # Company suffix patterns to normalize
 COMPANY_SUFFIXES = [
-    r'\s+(?:Pvt|Private|Limited|Ltd|LLC|LLP|Inc|Incorporated|Corp|Corporation|GmbH|AG|BV|NV|SA|SL)\.?\s*$',
-    r'\s+(?:Technologies|Technology|Tech|Solutions|Software|Systems|Services|Group)\.?\s*$',
-    r'\s+(?:India|US|USA|UK|Global|International)\.?\s*$',
+    r'\s+(?:pvt|private|limited|ltd|llc|llp|inc|incorporated|corp|corporation|gmbh|ag|bv|nv|sa|sl)\.?\s*$',
+    r'\s+(?:technologies|technology|tech|solutions|software|systems|services|group)\.?\s*$',
+    r'\s+(?:india|us|usa|uk|global|international)\.?\s*$',
 ]
 
 # Source priority for selecting best duplicate
@@ -76,9 +76,12 @@ def normalize_company(company: str) -> str:
     company = company.lower().strip()
     company = re.sub(r'[^a-z0-9\s\.]', '', company)
 
-    # Remove legal suffixes
-    for pattern in COMPANY_SUFFIXES:
-        company = re.sub(pattern, '', company)
+    # Remove legal suffixes — loop until stable (handles "Pvt Ltd" -> "Pvt" -> "")
+    prev = None
+    while prev != company:
+        prev = company
+        for pattern in COMPANY_SUFFIXES:
+            company = re.sub(pattern, '', company)
 
     # Normalize whitespace
     company = re.sub(r'\s+', ' ', company).strip()

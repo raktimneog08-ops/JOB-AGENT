@@ -1,6 +1,8 @@
 # Python
 __pycache__/
-*.py[cod]
+*.pyc
+*.pyo
+*.pyd
 *.egg-info/
 *.egg
 .venv/
@@ -17,8 +19,20 @@ env/
 .DS_Store
 Thumbs.db
 
+# Debugging / sample artifacts
+data/*.html
+data/*.png
+scripts/
+
+# Runtime temp files
+data/tmp/
+
 # Data (keep CSV structure, ignore empty dirs)
 data/*.csv
 
 # Logs
 *.log
+
+# Environment variables
+.env
+.env.local

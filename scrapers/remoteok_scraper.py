@@ -7,6 +7,7 @@ import re
 from datetime import datetime
 from typing import List, Optional
 
+import json
 from bs4 import BeautifulSoup
 
 from scrapers.base_scraper import BaseScraper, ScrapeResult
@@ -30,11 +31,8 @@ class RemoteOKScraper(BaseScraper):
 
     def build_search_url(self, job_title: str, page: int = 1) -> str:
         """Build RemoteOK search URL. RemoteOK uses slug-like URL paths."""
-        # Convert "Senior Frontend Developer" -> "senior-frontend-developer"
-        slug = job_title.lower().replace(" ", "-")
-        # Remove special characters
-        slug = re.sub(r"[^a-z0-9-]", "", slug)
-        return f"{self.BASE_URL}/remote-{slug}-jobs?page={page}"
+        # Use JSON feed for reliable results
+        return f"{self.BASE_URL}/remote-jobs.json"
 
     def parse_response(self, html: str, job_title: str) -> List[ScrapeResult]:
         """
@@ -53,16 +51,61 @@ class RemoteOKScraper(BaseScraper):
         </tr>
         """
         results = []
+
+        # Try JSON feed first. Some responses include a prefix; try to locate the JSON array start.
+        try:
+            data = json.loads(html)
+        except Exception:
+            data = None
+            try:
+                start = html.find('[')
+                if start != -1:
+                    data = json.loads(html[start:])
+            except Exception:
+                data = None
+
+        if isinstance(data, list):
+            # First element may be metadata; filter real job objects
+            for item in data:
+                if not isinstance(item, dict):
+                    continue
+                # skip metadata entries
+                if item.get("last_updated") and item.get("legal"):
+                    continue
+
+                title = item.get("position") or item.get("title") or ""
+                company = item.get("company") or ""
+                location = item.get("location") or item.get("tags") or "Remote"
+                slug = item.get("slug") or ""
+                job_id = item.get("id") or ""
+                job_url = ""
+                if slug:
+                    job_url = f"{self.BASE_URL}/remote-jobs/{slug}"
+                elif job_id:
+                    job_url = f"{self.BASE_URL}/remote-jobs/{job_id}"
+
+                description = item.get("description") or ""
+                # Basic filtering: match job_title substring in position
+                if title and job_title.lower() in title.lower():
+                    result = ScrapeResult(
+                        title=self._clean_text(title),
+                        company=self._clean_text(company),
+                        location=(location if isinstance(location, str) else "Remote"),
+                        url=job_url,
+                        posted_date=item.get("date", ""),
+                        salary_range="",
+                        description_snippet=self._clean_text(description)[:200],
+                    )
+                    results.append(result)
+
+            logger.debug(f"Parsed {len(results)} jobs from RemoteOK JSON feed", module="RemoteOK")
+            return results
+
+        # Fallback: HTML parsing (legacy)
         soup = BeautifulSoup(html, "lxml")
-
-        # Find all job rows
-        job_rows = soup.select("tr.job")
+        job_rows = soup.select("tr.job") or soup.find_all("tr", class_="job")
         if not job_rows:
-            # Try alternate selectors
-            job_rows = soup.find_all("tr", class_="job")
-
-        if not job_rows:
-            logger.debug("No job rows found in RemoteOK response", module="RemoteOK")
+            logger.debug("No job rows found in RemoteOK HTML response", module="RemoteOK")
             return results
 
         for row in job_rows:
@@ -74,10 +117,7 @@ class RemoteOKScraper(BaseScraper):
                 logger.debug(f"Failed to parse job row: {ex}", module="RemoteOK")
                 continue
 
-        logger.debug(
-            f"Parsed {len(results)} jobs from RemoteOK response",
-            module="RemoteOK",
-        )
+        logger.debug(f"Parsed {len(results)} jobs from RemoteOK HTML response", module="RemoteOK")
         return results
 
     def _extract_job_from_row(self, row) -> Optional[ScrapeResult]:
@@ -190,7 +230,23 @@ class RemoteOKScraper(BaseScraper):
     def search(self, job_title: str, max_results: int = 50) -> List[ScrapeResult]:
         """
         Override search to add platform tagging.
+        Uses the base class request method with retry/proxy/session support,
+        then tries to parse JSON feed first, falling back to HTML parsing.
         """
+        # Try JSON feed first via parent's make_request (includes retries, proxy, session)
+        url = self.build_search_url(job_title, 1)
+        html = self.make_request(url)
+        if html:
+            try:
+                results = self.parse_response(html, job_title)
+                for r in results:
+                    r.source_platform = "RemoteOK"
+                if results:
+                    return results[:max_results]
+            except Exception:
+                pass
+
+        # Fallback to parent implementation (HTML parsing)
         results = super().search(job_title, max_results)
         for r in results:
             r.source_platform = "RemoteOK"

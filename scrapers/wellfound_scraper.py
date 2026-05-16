@@ -5,6 +5,8 @@ Falls back to sitemap XML parsing when API is rate-limited.
 """
 
 import json
+import os
+import time
 import re
 from datetime import datetime
 from typing import List, Optional
@@ -43,6 +45,10 @@ class WellFoundScraper(BaseScraper):
     def build_search_url(self, job_title: str, page: int = 1) -> str:
         """Build WellFound API search URL."""
         return f"{self.API_URL}?query={requests.utils.quote(job_title)}&page={page}"
+
+    def build_web_search_url(self, job_title: str, page: int = 1) -> str:
+        """Build a web-search URL suitable for Playwright-rendered pages."""
+        return f"{self.BASE_URL}/jobs?search={requests.utils.quote(job_title)}&page={page}"
 
     def parse_response(self, html: str, job_title: str) -> List[ScrapeResult]:
         """
@@ -267,6 +273,31 @@ class WellFoundScraper(BaseScraper):
             if desc_elem:
                 description = desc_elem.get("content", "")
 
+            # Fallback: parse JSON-LD structured data if present
+            if (not title or not company) and soup.find_all("script", type="application/ld+json"):
+                for script in soup.find_all("script", type="application/ld+json"):
+                    try:
+                        jd = json.loads(script.string or "null")
+                        # JobPosting schema
+                        if isinstance(jd, dict) and jd.get("@type") in ("JobPosting", "JobPostingRecommendation"):
+                            title = title or jd.get("title") or jd.get("name")
+                            description = description or jd.get("description", "")
+                            hiring_org = jd.get("hiringOrganization") or jd.get("hiring_organization")
+                            if isinstance(hiring_org, dict):
+                                company = company or hiring_org.get("name")
+                            elif isinstance(hiring_org, str):
+                                company = company or hiring_org
+                        # url override
+                        u = jd.get("url") or jd.get("@id")
+                        jd_url = ""
+                        if u:
+                            jd_url = u if u.startswith("http") else f"{self.BASE_URL}{u}"
+                        if jd_url:
+                            url = jd_url
+                        break
+                    except Exception:
+                        continue
+
             result = ScrapeResult(
                 title=title or "Unknown Position",
                 company=company or "Unknown Company",
@@ -291,7 +322,75 @@ class WellFoundScraper(BaseScraper):
 
     def search(self, job_title: str, max_results: int = 50) -> List[ScrapeResult]:
         """Override search to add platform tagging."""
-        results = super().search(job_title, max_results)
-        for r in results:
-            r.source_platform = "WellFound"
-        return results
+        all_results: List[ScrapeResult] = []
+        page = 1
+
+        while len(all_results) < max_results:
+            api_url = self.build_search_url(job_title, page)
+            html = self.make_request(api_url)
+
+            # If API returned JSON/HTML, parse it
+            if html:
+                page_results = self.parse_response(html, job_title)
+                for r in page_results:
+                    r.source_platform = "WellFound"
+                all_results.extend(page_results)
+                if not page_results:
+                    break
+
+            else:
+                # API returned None (likely 404 or forbidden). Try sitemap fallback once.
+                logger.info("API unavailable; attempting sitemap fallback", module="WellFound")
+                sitemap_html = self.make_request(self.SITEMAP_URL)
+                if sitemap_html:
+                    page_results = self._parse_sitemap_response(sitemap_html, job_title)
+                    for r in page_results:
+                        r.source_platform = "WellFound"
+                    all_results.extend(page_results)
+                else:
+                    # Sitemap also unavailable or blocked. Try Firecrawl JS-rendered fallback.
+                    from utils.firecrawl_client import get_firecrawl_client
+                    firecrawl = get_firecrawl_client()
+                    
+                    if firecrawl.available:
+                        logger.info("Attempting Firecrawl-rendered fetch for WellFound.", module="WellFound")
+                        search_url = self.build_web_search_url(job_title, 1)
+                        rendered = firecrawl.scrape_url(search_url)
+                        
+                        if rendered:
+                            # Parse job links from the rendered page
+                            soup = BeautifulSoup(rendered, "lxml")
+                            anchors = soup.find_all("a", href=True)
+                            collected_links = []
+                            for a in anchors:
+                                href = a.get("href", "")
+                                if "/jobs/" in href and href not in collected_links:
+                                    full = href if href.startswith("http") else f"{self.BASE_URL}{href}"
+                                    collected_links.append(full)
+                            
+                            # Visit each discovered job link via Firecrawl
+                            for job_url in collected_links[:10]:
+                                job_html = firecrawl.scrape_url(job_url)
+                                if job_html:
+                                    result = self._extract_job_from_page(job_html, job_url)
+                                    if result:
+                                        result.source_platform = "WellFound"
+                                        all_results.append(result)
+                                self._polite_delay()
+                        else:
+                            logger.warning("Firecrawl returned no content for WellFound search.", module="WellFound")
+                    else:
+                        logger.warning(
+                            "Firecrawl not available (FIRECRAWL_API_KEY not set). "
+                            "Skipping JS-rendered WellFound fallback.",
+                            module="WellFound",
+                        )
+                break
+
+            # polite delay and pagination
+            self._polite_delay()
+            page += 1
+            if page > 20:
+                break
+
+        return all_results[:max_results]

@@ -142,6 +142,9 @@ The workflow (`daily_run.yml`) is **triggered manually only** — no automatic s
 
 - **Naukri.com**: May block requests due to anti-bot measures. The scraper uses polite delays and session rotation as mitigation. For production use, consider adding ScraperAPI/BrightData.
 - **WellFound.com**: Full job descriptions require login. The scraper extracts what's available from the public API.
+ - **CAPTCHA / JS rendering**: Some platforms use bot protection (DataDome, Cloudflare, CAPTCHA). This project includes Playwright fallbacks and two options:
+     - **Automated solving**: Configure a CAPTCHA solver service (2captcha) via `CAPTCHA_PROVIDER` and `CAPTCHA_API_KEY` environment variables. Solving may cost money and isn't guaranteed for custom challenge flows.
+     - **Manual solve**: Set `WELLFOUND_MANUAL_SOLVE=1` to open a headed browser when a challenge is detected. Solve the challenge manually, then press Enter in the terminal to continue the run.
 - **Free proxies**: The proxy rotator fetches free proxies which may be unreliable. Use with caution.
 
 ## 📝 Status Management

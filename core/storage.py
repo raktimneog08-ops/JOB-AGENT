@@ -5,6 +5,7 @@ and tracking run metadata.
 """
 
 import csv
+import io
 import os
 import time
 from datetime import datetime
@@ -76,11 +77,16 @@ def load_existing_jobs(filepath: str) -> Dict[str, dict]:
     
     try:
         with open(filepath, mode="r", encoding="utf-8", newline="") as f:
-            reader = csv.DictReader(f)
+            # Filter out comment/metadata lines that start with '#'
+            lines = [ln for ln in f.readlines() if not ln.lstrip().startswith("#")]
+            if not lines:
+                logger.debug(f"CSV {filepath} contains only metadata/comments", module="Storage")
+                return existing
+            buf = io.StringIO("".join(lines))
+            reader = csv.DictReader(buf)
             for row in reader:
-                # Skip metadata rows (start with #)
-                url = row.get("Job URL", "").strip()
-                if url and not url.startswith("#"):
+                url = (row.get("Job URL") or "").strip()
+                if url:
                     existing[url] = row
         
         logger.info(
@@ -180,10 +186,14 @@ def load_jobs_with_status(filepath: str) -> List[Dict]:
     
     try:
         with open(filepath, mode="r", encoding="utf-8", newline="") as f:
-            reader = csv.DictReader(f)
+            lines = [ln for ln in f.readlines() if not ln.lstrip().startswith("#")]
+            if not lines:
+                return jobs
+            buf = io.StringIO("".join(lines))
+            reader = csv.DictReader(buf)
             for row in reader:
-                url = row.get("Job URL", "").strip()
-                if url and not url.startswith("#"):
+                url = (row.get("Job URL") or "").strip()
+                if url:
                     jobs.append(row)
     except Exception as ex:
         logger.warning(f"Failed to load jobs from {filepath}: {ex}", module="Storage")
@@ -217,22 +227,41 @@ def update_job_status(filepath: str, job_url: str, new_status: str) -> bool:
     try:
         rows = []
         updated = False
+        metadata_lines = []
         
         with open(filepath, mode="r", encoding="utf-8", newline="") as f:
-            reader = csv.DictReader(f)
-            fieldnames = reader.fieldnames
-            
-            for row in reader:
-                if row.get("Job URL", "").strip() == job_url:
-                    row["Status"] = new_status
-                    updated = True
-                rows.append(row)
+            all_lines = f.readlines()
+        
+        # Separate metadata lines (starting with #) from data lines
+        data_lines = []
+        for ln in all_lines:
+            if ln.lstrip().startswith("#"):
+                metadata_lines.append(ln)
+            else:
+                data_lines.append(ln)
+        
+        if not data_lines:
+            logger.warning(f"CSV {filepath} contains no data rows", module="Storage")
+            return False
+        
+        buf = io.StringIO("".join(data_lines))
+        reader = csv.DictReader(buf)
+        fieldnames = reader.fieldnames
+
+        for row in reader:
+            if (row.get("Job URL") or "").strip() == job_url:
+                row["Status"] = new_status
+                updated = True
+            rows.append(row)
         
         if updated:
             with open(filepath, mode="w", encoding="utf-8", newline="") as f:
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
                 writer.writeheader()
                 writer.writerows(rows)
+                # Re-append metadata comment lines
+                for meta_line in metadata_lines:
+                    f.write(meta_line)
             
             logger.info(f"Updated status for {job_url} to '{new_status}'", module="Storage")
             return True

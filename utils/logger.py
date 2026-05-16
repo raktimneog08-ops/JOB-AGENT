@@ -20,13 +20,21 @@ class JobAgentLogger:
         return cls._instance
 
     def __init__(self, log_level: str = "INFO", log_file: str = None):
-        if self._initialized:
-            return
-        self._initialized = True
-
         self.logger = logging.getLogger("JobAgent")
         level = getattr(logging, log_level.upper(), logging.INFO)
         self.logger.setLevel(level)
+        
+        # Re-initialize handlers only on first call OR if level/file params have changed
+        if self._initialized:
+            # Check if level has changed
+            current_level = self.logger.level
+            if current_level != level:
+                self.logger.setLevel(level)
+                for handler in self.logger.handlers:
+                    handler.setLevel(level)
+            return
+        
+        self._initialized = True
         self.logger.handlers.clear()
 
         # Console handler with colored output

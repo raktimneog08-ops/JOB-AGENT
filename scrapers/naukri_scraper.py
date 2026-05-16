@@ -6,6 +6,7 @@ session rotation. If blocked, results may be partial.
 """
 
 import re
+import os
 from datetime import datetime
 from typing import List, Optional
 
@@ -62,13 +63,12 @@ class NaukriScraper(BaseScraper):
         # Try multiple selectors for job cards (Naukri changes class names frequently)
         job_cards = []
         for selector in [
+            "div.srp-jobtuple-wrapper",
+            "div.cust-job-tuple",
+            "div.srp-jobtuple-wrapper[data-job-id]",
             "div.jobTuple",
             "article.jobTupleHeader",
             "div[class*='jobTuple']",
-            "div[class*='job-card']",
-            "div[class*='jobCard']",
-            "div[class*='list'] > div[class*='job']",
-            "section.job-list > article",
         ]:
             job_cards = soup.select(selector)
             if job_cards:
@@ -107,7 +107,7 @@ class NaukriScraper(BaseScraper):
             # Job title
             title = ""
             title_elem = (
-                card.find("a", class_="title")
+                card.select_one("a.title")
                 or card.find("a", {"class": lambda x: x and "title" in x.lower()})
                 or card.find("h2")
                 or card.find("h3")
@@ -125,8 +125,9 @@ class NaukriScraper(BaseScraper):
             # Company name
             company = ""
             company_elem = (
-                card.find("a", class_="subTitle")
-                or card.find("a", {"class": lambda x: x and "subTitle" in x.lower()})
+                card.select_one("a.comp-name")
+                or card.select_one("a.comp-name.mw-25")
+                or card.find("a", class_="subTitle")
                 or card.find("span", class_="company-name")
                 or card.find("a", {"class": lambda x: x and "company" in x.lower()})
             )
@@ -136,7 +137,9 @@ class NaukriScraper(BaseScraper):
             # Location
             location = ""
             location_elem = (
-                card.find("li", class_="location")
+                card.select_one("span.locWdth")
+                or card.select_one("span.location")
+                or card.find("li", class_="location")
                 or card.find("span", class_="location")
                 or card.find("a", {"class": lambda x: x and "loc" in x.lower()})
             )
@@ -148,7 +151,9 @@ class NaukriScraper(BaseScraper):
             # Salary range
             salary_range = ""
             salary_elem = (
-                card.find("li", class_="salary")
+                card.select_one("span.sal-wrap")
+                or card.select_one("span[title*='Lacs']")
+                or card.find("li", class_="salary")
                 or card.find("span", class_="salary")
                 or card.find("span", {"class": lambda x: x and "salary" in x.lower()})
             )
@@ -158,7 +163,7 @@ class NaukriScraper(BaseScraper):
             # Posted date
             posted_date = ""
             date_elem = (
-                card.find("span", class_="job-post-day")
+                card.select_one("span.job-post-day")
                 or card.find("span", {"class": lambda x: x and ("day" in x.lower() or "date" in x.lower() or "posted" in x.lower())})
                 or card.find("span", class_="date")
             )
@@ -168,9 +173,9 @@ class NaukriScraper(BaseScraper):
             # Description snippet
             description_snippet = ""
             desc_elem = (
-                card.find("div", class_="job-description")
+                card.select_one("span.job-desc")
+                or card.find("div", class_="job-description")
                 or card.find("div", {"class": lambda x: x and "desc" in x.lower()})
-                or card.find("span", class_="job-desc")
             )
             if desc_elem:
                 description_snippet = self._clean_text(desc_elem.get_text())
@@ -205,4 +210,31 @@ class NaukriScraper(BaseScraper):
             # Clean up salary text for consistency
             if r.salary_range:
                 r.salary_range = r.salary_range.replace("\u20b9", "₹").replace("PA", "per annum")
-        return results
+
+        # If no results from simple requests-based parsing, try Firecrawl JS-rendered fallback
+        if not results:
+            from utils.firecrawl_client import get_firecrawl_client
+            firecrawl = get_firecrawl_client()
+            
+            if firecrawl.available:
+                logger.info("No results; attempting Firecrawl-rendered fetch for Naukri.", module="Naukri")
+                search_url = self.build_search_url(job_title, 1)
+                html = firecrawl.scrape_url(search_url)
+                
+                if html:
+                    page_results = self.parse_response(html, job_title)
+                    for r in page_results:
+                        r.source_platform = "Naukri"
+                        if r.salary_range:
+                            r.salary_range = r.salary_range.replace("\u20b9", "₹").replace("PA", "per annum")
+                    results.extend(page_results)
+                else:
+                    logger.warning("Firecrawl returned no content for Naukri search.", module="Naukri")
+            else:
+                logger.warning(
+                    "Firecrawl not available (FIRECRAWL_API_KEY not set). "
+                    "Skipping JS-rendered Naukri fallback.",
+                    module="Naukri",
+                )
+
+        return results[:max_results]

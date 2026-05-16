@@ -195,7 +195,11 @@ class BaseScraper(abc.ABC):
 
                 # Success
                 resp.raise_for_status()
-                return resp.text
+                # Prefer raw bytes decoded as UTF-8 with replacement to avoid codec errors
+                try:
+                    return resp.content.decode("utf-8", errors="replace")
+                except Exception:
+                    return resp.text
 
             except requests.exceptions.ProxyError as ex:
                 last_error = ex
