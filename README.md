@@ -9,7 +9,7 @@ An automated job aggregation agent that scrapes job listings from multiple platf
 - **CSV storage**: Monthly CSV files with changelog tracking
 - **Slack notifications**: Rich formatted summaries after each run
 - **Anti-bot measures**: Polite delays, rotating User-Agents, session rotation, proxy support
-- **GitHub Actions automation**: Daily scheduled runs with artifact upload
+- **GitHub Actions on-demand**: Run manually via Actions tab whenever you want
 - **Configurable**: Job titles, keywords, rate limits, and more via settings.json
 
 ## 📋 Requirements
@@ -56,7 +56,7 @@ export SLACK_WEBHOOK_URL="https://hooks.slack.com/services/xxx/yyy/zzz"
 python main.py
 ```
 
-### 4. Set Up GitHub Actions (for daily automation)
+### 4. Set Up GitHub Actions (run on-demand)
 
 1. Push the code to your GitHub repository
 2. Add the Slack webhook as a repository secret:
@@ -64,8 +64,8 @@ python main.py
    - Click "New repository secret"
    - Name: `SLACK_WEBHOOK_URL`
    - Value: Your Slack Incoming Webhook URL
-3. The workflow will run daily at 6:00 AM UTC (11:30 AM IST)
-4. You can also manually trigger it from the Actions tab
+3. Go to the **Actions** tab → **Run Job Agent** → **Run workflow** → click the green button
+4. That's it! The agent runs immediately and CSV results are available as downloadable artifacts
 
 ## 📁 Project Structure
 
@@ -128,14 +128,15 @@ CSV files are named `{Month_Year}_Job_Listings.csv` (e.g., `May_2026_Job_Listing
 | `csv_output_dir` | Directory for CSV files | "data" |
 | `slack_webhook_url_env` | Environment variable for webhook | "SLACK_WEBHOOK_URL" |
 
-## 🔄 GitHub Actions Workflow
+## 🔄 GitHub Actions Workflow (Manual Only)
 
-The workflow (`daily_run.yml`) automatically:
-1. Runs at 6:00 AM UTC daily
+The workflow (`daily_run.yml`) is **triggered manually only** — no automatic schedule:
+
+1. Go to **Actions** tab → **Run Job Agent** → **Run workflow**
 2. Installs dependencies
 3. Executes the job agent
 4. Uploads CSV files as build artifacts (30-day retention)
-5. Commits updated CSV files back to the repository
+5. Download results from the run's **Artifacts** section
 
 ## ⚠️ Known Limitations
 
