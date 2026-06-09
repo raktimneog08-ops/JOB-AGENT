@@ -1,8 +1,11 @@
 name: Run Job Agent
 
 on:
-  # Manual trigger only — click "Run workflow" in the Actions tab
+  # Manual trigger — click "Run workflow" in the Actions tab
   workflow_dispatch:
+  # Automatic daily schedule at 9:00 AM UTC (2:30 PM IST)
+  schedule:
+    - cron: '0 9 * * *'
 
 jobs:
   scrape-and-process:
